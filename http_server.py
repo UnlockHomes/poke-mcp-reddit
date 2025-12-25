@@ -33,6 +33,16 @@ reddit_server = RedditServer()
 # API Key authentication (optional)
 API_KEY = os.environ.get("MCP_API_KEY")  # Set in Railway environment variables
 
+# Debug endpoint to check if API_KEY is loaded (remove in production)
+@app.get("/debug/api-key")
+async def debug_api_key():
+    """Debug endpoint to check if API_KEY is loaded"""
+    return {
+        "api_key_set": bool(API_KEY),
+        "api_key_length": len(API_KEY) if API_KEY else 0,
+        "api_key_preview": API_KEY[:10] + "..." if API_KEY and len(API_KEY) > 10 else (API_KEY if API_KEY else None)
+    }
+
 # Tool definitions for MCP protocol
 def get_tool_definitions():
     """List available Reddit tools."""
@@ -294,6 +304,7 @@ async def health():
 
 def verify_api_key(request: Request) -> bool:
     """Verify API key from request headers"""
+    # Debug: Check if API_KEY is set
     if not API_KEY:
         # If no API key is set, allow all requests (backward compatible)
         return True
@@ -304,11 +315,13 @@ def verify_api_key(request: Request) -> bool:
     api_key_header = request.headers.get("X-API-Key", "")
     
     # Extract token from Bearer format
+    token = None
     if auth_header.startswith("Bearer "):
-        token = auth_header.replace("Bearer ", "")
+        token = auth_header.replace("Bearer ", "").strip()
     elif api_key_header:
-        token = api_key_header
-    else:
+        token = api_key_header.strip()
+    
+    if not token:
         return False
     
     return token == API_KEY
@@ -317,7 +330,7 @@ def verify_api_key(request: Request) -> bool:
 async def mcp_endpoint(request: Request):
     """MCP protocol endpoint - JSON-RPC 2.0"""
     # Verify API key if configured
-    if not verify_api_key(request):
+    if API_KEY and not verify_api_key(request):
         return JSONResponse(
             status_code=401,
             content={

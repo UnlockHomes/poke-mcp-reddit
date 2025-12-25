@@ -302,11 +302,29 @@ async def mcp_endpoint(request: Request):
             
             if method == "tools/list":
                 tools = get_tool_definitions()
+                # Fix null fields for MCP Inspector compatibility
+                tools_list = []
+                for tool in tools:
+                    tool_dict = tool.model_dump()
+                    # Remove null fields or provide defaults
+                    if tool_dict.get("title") is None:
+                        tool_dict.pop("title", None)
+                    if tool_dict.get("icons") is None:
+                        tool_dict.pop("icons", None)
+                    if tool_dict.get("outputSchema") is None:
+                        tool_dict.pop("outputSchema", None)
+                    if tool_dict.get("annotations") is None:
+                        tool_dict.pop("annotations", None)
+                    if tool_dict.get("execution") is None:
+                        tool_dict.pop("execution", None)
+                    if tool_dict.get("meta") is None:
+                        tool_dict.pop("meta", None)
+                    tools_list.append(tool_dict)
                 return {
                     "jsonrpc": "2.0",
                     "id": body.get("id"),
                     "result": {
-                        "tools": [tool.model_dump() for tool in tools]
+                        "tools": tools_list
                     }
                 }
             elif method == "tools/call":

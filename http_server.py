@@ -3,8 +3,9 @@ HTTP Server wrapper for MCP Reddit Server
 This allows the MCP server to be accessed via HTTP/HTTPS for Railway deployment
 """
 import json
+import asyncio
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from mcp.types import Tool
 import sys
@@ -330,7 +331,9 @@ async def mcp_endpoint(request: Request):
                     "id": body.get("id"),
                     "result": {
                         "protocolVersion": "2024-11-05",
-                        "capabilities": {},
+                        "capabilities": {
+                            "tools": {}
+                        },
                         "serverInfo": {
                             "name": "mcp-reddit",
                             "version": "0.2.0"
@@ -359,6 +362,79 @@ async def list_tools_endpoint():
     return {
         "tools": [tool.model_dump() for tool in tools]
     }
+
+@app.get("/mcp")
+async def mcp_sse_endpoint(request: Request):
+    """MCP Streamable HTTP endpoint using Server-Sent Events"""
+    async def event_stream():
+        # Send initial connection message
+        yield f"data: {json.dumps({'jsonrpc': '2.0', 'method': 'connection/opened'})}\n\n"
+        
+        # For SSE, we need to handle incoming messages via POST to a separate endpoint
+        # This is a simplified version - full SSE implementation would require bidirectional communication
+        # For now, we'll just keep the connection open
+        while True:
+            await asyncio.sleep(1)
+            # Keep connection alive
+    
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+@app.post("/mcp/sse")
+async def mcp_sse_post(request: Request):
+    """Handle POST requests for SSE-based MCP communication"""
+    try:
+        body = await request.json()
+        
+        if body.get("jsonrpc") == "2.0":
+            method = body.get("method")
+            params = body.get("params", {})
+            
+            if method == "initialize":
+                return {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {
+                            "tools": {}
+                        },
+                        "serverInfo": {
+                            "name": "mcp-reddit",
+                            "version": "0.2.0"
+                        }
+                    }
+                }
+            elif method == "tools/list":
+                tools = get_tool_definitions()
+                return {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "tools": [tool.model_dump() for tool in tools]
+                    }
+                }
+            elif method == "tools/call":
+                tool_name = params.get("name")
+                arguments = params.get("arguments", {})
+                result = await call_tool(tool_name, arguments)
+                return {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": json.dumps(result, default=str, indent=2)
+                            }
+                        ]
+                    }
+                }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": body.get("id") if 'body' in locals() else None,
+            "error": {"code": -32603, "message": str(e)}
+        }
 
 if __name__ == "__main__":
     import uvicorn

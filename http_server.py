@@ -30,6 +30,9 @@ app.add_middleware(
 # Initialize Reddit server
 reddit_server = RedditServer()
 
+# API Key authentication (optional)
+API_KEY = os.environ.get("MCP_API_KEY")  # Set in Railway environment variables
+
 # Tool definitions for MCP protocol
 def get_tool_definitions():
     """List available Reddit tools."""
@@ -289,9 +292,43 @@ async def health():
     """Health check endpoint"""
     return {"status": "healthy"}
 
+def verify_api_key(request: Request) -> bool:
+    """Verify API key from request headers"""
+    if not API_KEY:
+        # If no API key is set, allow all requests (backward compatible)
+        return True
+    
+    # Check for API key in headers
+    # Poke sends it as Authorization: Bearer <key> or X-API-Key header
+    auth_header = request.headers.get("Authorization", "")
+    api_key_header = request.headers.get("X-API-Key", "")
+    
+    # Extract token from Bearer format
+    if auth_header.startswith("Bearer "):
+        token = auth_header.replace("Bearer ", "")
+    elif api_key_header:
+        token = api_key_header
+    else:
+        return False
+    
+    return token == API_KEY
+
 @app.post("/mcp")
 async def mcp_endpoint(request: Request):
     """MCP protocol endpoint - JSON-RPC 2.0"""
+    # Verify API key if configured
+    if not verify_api_key(request):
+        return JSONResponse(
+            status_code=401,
+            content={
+                "jsonrpc": "2.0",
+                "error": {
+                    "code": -32001,
+                    "message": "Unauthorized: Invalid or missing API key"
+                }
+            }
+        )
+    
     try:
         body = await request.json()
         
@@ -400,6 +437,19 @@ async def mcp_sse_endpoint(request: Request):
 @app.post("/mcp/sse")
 async def mcp_sse_post(request: Request):
     """Handle POST requests for SSE-based MCP communication"""
+    # Verify API key if configured
+    if not verify_api_key(request):
+        return JSONResponse(
+            status_code=401,
+            content={
+                "jsonrpc": "2.0",
+                "error": {
+                    "code": -32001,
+                    "message": "Unauthorized: Invalid or missing API key"
+                }
+            }
+        )
+    
     try:
         body = await request.json()
         
